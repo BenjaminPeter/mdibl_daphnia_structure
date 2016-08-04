@@ -1,0 +1,261 @@
+```{r setup, include=FALSE}
+opts_chunk$set(cache=TRUE)
+```
+
+Population Structure Analysis in Daphnia magna
+========================================================
+author: Benjamin Peter
+date:
+width: 1920
+height: 1080
+autosize: true
+
+Population Structure in D. magna
+========================================================
+![Daphnia](img/daphnia_paper.png)
+
+
+Samples (RAD-seq)
+========================================================
+![Daphnia](img/daphnia_samples.png)
+
+
+
+Setting up 
+=====================================================
+- `install.packages('dplyr')`
+- `install.packages('RColorBrewer')`
+- get all results from Dropbox
+- make a new folder 
+- extract data (unzip structure.zip)
+- have a look at `workshop.sh`
+- have a look at `pop_structure.R`
+
+
+Preprocessing the data:
+========================================================
+
+* Download data from Dryad (http://datadryad.org/resource/doi:10.5061/dryad.bv3gm )
+* Reformat to `plink` format, remove two outliers individuals
+* Also get raw-text format.
+* Change input chromosome names
+* Remove all sites with missing calls
+```{bash, echo=T, eval=F}
+plink --vcf data/D_magna_RADseq.vcf.gz --make-bed --out data/D_magna --allow-extra-chr --geno 0.0  --remove data/to-remove.txt
+
+ln -f data/D_magna.bed data/D_magna2.bed
+ln -f data/D_magna.fam data/D_magna2.fam      
+awk '{print 1, $2, $3, $4, $5, $6}' data/D_magna.bim > data/D_magna2.bim     
+plink --bfile data/D_magna2 --recode A --out data/D_magna2                  cut -f1,7- -d" " data/D_magna2.raw | tail -n+2 > data/D_magna.txt
+```
+
+
+
+Let us load and look at the data
+=====================================================
+Let's look at the data:
+```{r, echo=T, eval=T}
+D_magna <- read.table('data/D_magna.txt')
+dim(D_magna)
+print(D_magna[1:15,1:15])
+```
+
+Hardy-Weinberg Equilibrium
+=======================================================
+Plink makes it easy to test for Hardy-Weinberg Equilibrium: 
+```{bash, echo=T, eval=F}
+plink --bfile data/D_magna --hardy   --out D_magna
+```
+
+
+visualizing HWE
+======================================================
+```{r myplot,echo=T,fig.width=8,fig.height=5,dpi=200,out.width="1920px",height="1480px"}
+source('pop_structure.R')
+par(mar=c(4,4,4,4))
+plot_freq_vs_HWE('data/D_magna.hwe')
+```
+
+Filtering
+=========================================================
+Let us remove SNP that grossly violate HWE
+```{bash, echo=T, eval=F}
+plink --bfile data/D_magna2 --hwe 0.001 --make-bed --out data/D_magna3    
+plink --bfile data/D_magna3 --hardy --out data/D_magna3                   
+```
+
+
+Hardy-Weinberg Equilibrium (2)
+=======================================================
+```{r myplot2,echo=T,fig.width=8,fig.height=5,dpi=200,out.width="1920px",height="1480px"}
+source('pop_structure.R')
+par(mar=c(4,4,4,4), mfrow=c(1,2))
+plot_freq_vs_HWE('data/D_magna.hwe', title='no filter')
+plot_freq_vs_HWE('data/D_magna3.hwe', title='hwe filter')
+```
+
+Principal Component Analysis
+=========================================================
+```{bash, eval=F, echo=T}
+flashpca --bfile D_magna3 --outpc D_magna3_pc.txt --outpve D_magna3_pve.txt  --ndim 22
+```
+
+
+Principal Component Analysis
+=========================================================
+```{r, eval=T, echo=T}
+source('pop_structure.R')
+pc_data <- load_pca('pca/D_magna3_pc.txt', 'data/D_magna3.fam', 'data/D_magna.names')
+plot_pca(pc_data, 'PC1', 'PC2')
+```
+***
+```
+From the Fields paper:
+
+
+
+
+
+```
+![test](img/daphnia_pca_us.png)
+
+PCA: Percent Variance explained
+===========================================================
+```{r pve,echo=T,eval=T, fig.width=8, fig.height=5,dpi=200,out.width="1920px",height="1080px"}
+source('pop_structure.R')
+pve <- read.table("pca/D_magna3_pve.txt")[,1]
+plot(pve, xlab='PC', ylab='% variance explained', pch=16)
+```
+
+PCA: Higher PCs
+===========================================================
+```{r manypcs,echo=T,eval=T, fig.width=8, fig.height=4,dpi=200,out.width="1920px",height="1080px"}
+source('pop_structure.R')
+par(mfrow=c(2,2), mar=c(0,0, 4, 1))
+plot_pca(pc_data, 'PC1', 'PC2', main = 'PC1 vs PC2')
+plot_pca(pc_data, 'PC3', 'PC4', main = 'PC3 vs PC4')
+plot_pca(pc_data, 'PC5', 'PC6', main = 'PC5 vs PC6')
+plot_pca(pc_data, 'PC7', 'PC8', main = 'PC7 vs PC8')
+```
+
+
+Admixture (single run)
+=========================================================
+```{bash, eval=F, echo=T}
+#basic command
+admixture data/D_magna3.bed 2
+admixture data/D_magna3.bed 2 | grep ^Log > D_magna3_2.like
+```
+Output:
+- admixture/D_magna3_2.like (contains likelihood)
+- admixture/D_magna3.Q (contains cluster assignments)
+- admixture/D_magna3.P (contains marker frequency in "clusters")
+
+```{r, eval=T, echo=T, fig.height=3, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+x <- load_admixture_Q_single_rep(2, 'admixture/1/D_magna3.2.Q', 'data/D_magna.names')[[1]]
+plot_admixture_single(x, ylab='Ancestry', main='K=2')
+```
+
+Admixture (second run)
+=========================================================
+```{r, eval=T, echo=F, fig.height=3, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+x <- load_admixture_Q_single_rep(2, 'admixture/1/D_magna3.2.Q')[[1]]
+y <- load_admixture_Q_single_rep(2, 'admixture/3/D_magna3.2.Q')[[1]]
+plot_admixture_single(x, ylab='Ancestry', main='K=2')
+plot_admixture_single(y, ylab='Ancestry', main='K=2')
+```
+
+Admixture (twenty runs)
+=========================================================
+```{r, eval=T, echo=F, fig.height=6, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+par(mfrow=c(4,5), mar=c(1,1,1,1))
+x <- load_admixture_Q_single_K(2, 1:20)
+for(i in 1:20)
+plot_admixture_single(x[[i]])
+```
+
+
+
+Convergence can be a major issue
+========================================================
+```{r, eval=T, echo=T,  fig.height=5, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+ll <- load_admixture_ll(2, 1:20)
+barplot(ll[,1]-min(ll[,1]), ylab='Log-Likelihood',names.arg=sprintf('run %s', 1:20), las=2)
+```
+
+Admixture (best runs)
+=========================================================
+```{r, eval=T, echo=F, fig.height=6, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+par(mfrow=c(3,1), mar=c(3, 3, 3, 3))
+x <- load_admixture_Q_single_rep(2, 'admixture/2/D_magna3.2.Q')[[1]]
+y <- load_admixture_Q_single_rep(2, 'admixture/11/D_magna3.2.Q')[[1]]
+z <- load_admixture_Q_single_rep(2, 'admixture/16/D_magna3.2.Q')[[1]]
+plot_admixture_single(x, ylab='Ancestry', main='K=2, run2')
+plot_admixture_single(y, ylab='Ancestry', main='K=2, run11')
+plot_admixture_single(z, ylab='Ancestry', main='K=2, run16')
+```
+
+Admixture
+==========================================================
+We can easily do many replicates using `for`-loops in bash
+```{bash, echo=T, eval=F}
+for i in `seq 2 8`; do  
+    for j in `seq 1 20`; do                                                
+        mkdir -p admixture/$j/                                             
+        ln -f data/D_magna3.bed admixture/$j                               
+        ln -f data/D_magna3.bim admixture/$j                               
+        ln -f data/D_magna3.fam admixture/$j                               
+        cd admixture/$j                                                    
+        echo "K=$i/ run $j"                                                
+        admixture D_magna3.bed $i --seed=$j | grep ^Log > D_magna3_$i.like 
+        cd ../..                                                           
+    done                                                                   
+done                                                                       
+```
+
+Admixture (K=2-5)
+=========================================================
+```{r, eval=T, echo=F, fig.height=6, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+ll <- load_admixture_ll(2:5, 1:20)
+best <- load_admixture_Q_best(ll, 2:5)
+par(mfrow=c(4,1), mar=c(0, 4, 3, 0))
+for(i in 1:4)plot_admixture_single(best[[i]], ylab=sprintf('K=%s, best', i+1))
+```
+
+Is there a "best" K?
+========================================================
+```{r, eval=T, echo=F, fig.height=6, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+ll <- load_admixture_ll(2:8, 1:20)
+best_ll <- apply(ll, 2, max)
+plot(1:length(best_ll)+1, best_ll, type='b', xlab='K', ylab='Likelihood')
+```
+
+Admixture (K=2-8)
+=========================================================
+```{r, eval=T, echo=F, fig.height=6, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+best <- load_admixture_Q_best(ll, 2:8)
+par(mfrow=c(7,1), mar=c(0, 4, 0, 0))
+for(i in 1:7)plot_admixture_single(best[[i]], ylab=sprintf('K=%s, best', i+1))
+```
+
+Admixture  / PCA
+=========================================================
+```{r, eval=T, echo=F, fig.height=6, fig.width=8, out.width="1920px"}
+source('pop_structure.R')
+best <- load_admixture_Q_best(ll, 2:5)
+par(mfrow=c(4,1), mar=c(0, 4, 3, 0))
+for(i in 1:4)plot_admixture_single(best[[i]], ylab=sprintf('K=%s, best', i+1))
+```
+***
+```{r, echo=F, eval=T}
+plot_pca(pc_data, 'PC7', 'PC8', main = 'PC1 vs PC2')
+```
+
